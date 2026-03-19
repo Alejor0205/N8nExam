@@ -1,0 +1,215 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "6ea9dc69-a046-4a03-b41d-941aaf78a385",
+              "name": "temperature",
+              "value": "={{ $json.current_weather.temperature }}",
+              "type": "string"
+            },
+            {
+              "id": "0d27bd2c-9fb1-406f-8fcb-a361769e9731",
+              "name": "windspeed",
+              "value": "={{ $json.current_weather.windspeed }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        400,
+        0
+      ],
+      "id": "70860a86-0d60-485f-93f1-0c865cfa7736",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "url": "https://api.open-meteo.com/v1/forecast?latitude=7.1193&longitude=-73.1227&current_weather=true",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        208,
+        0
+      ],
+      "id": "94430716-910f-4698-8c92-e955cf986099",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Actúa como un asistente que comunica información del clima de forma clara, natural y amigable para usuarios finales.\n\nTu objetivo es generar un mensaje breve (máximo 2 líneas) fácil de entender, sin tecnicismos y con un tono cercano.\n\nContexto:\n- Ciudad: \n- Temperatura actual: {{$json.temperature}} °C\n- Velocidad del viento: {{$json.windspeed}} km/h\n\nInstrucciones:\n- No menciones los nombres de las variables.\n- Interpreta los datos (ej: si hace calor, frío o clima agradable).\n- Usa lenguaje natural como si hablaras con una persona.\n- Evita frases robóticas o repetitivas.\n- El mensaje debe ser útil y directo.\n\nSalida esperada:\nUn solo mensaje corto describiendo el clima actual.",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        608,
+        0
+      ],
+      "id": "dd716cd8-b233-4487-8338-b6ce2490a9ca",
+      "name": "AI Agent1"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        608,
+        176
+      ],
+      "id": "bb6c49c3-b44e-4d45-aef9-a2b53a9b762c",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "nniV00m2cJwkgYZJ",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "{{$json.body.message.chat.id}}",
+        "text": "={{ $json.menssage }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1168,
+        0
+      ],
+      "id": "7c3c47f5-974d-48af-909a-7cfcb2b4ba57",
+      "name": "Send a text message",
+      "webhookId": "55265983-450c-4b66-9b56-e8a501bd2e07",
+      "credentials": {
+        "telegramApi": {
+          "id": "HCKVfZ8rRgDjTnBt",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "telegram-bot",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        32,
+        0
+      ],
+      "id": "9479e951-c0e5-45ea-9e67-92353a043ab1",
+      "name": "setWebhook",
+      "webhookId": "2e615bc3-0b20-4d85-b874-5dba0c526872"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "751a4d54-d3f9-4a37-8587-4bc0484336c4",
+              "name": "menssage",
+              "value": "={{ $json.output }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        960,
+        0
+      ],
+      "id": "14ec595f-8f95-40fc-bcb2-6fd8852bab97",
+      "name": "Salida Mensaje"
+    }
+  ],
+  "connections": {
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent1": {
+      "main": [
+        [
+          {
+            "node": "Salida Mensaje",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "setWebhook": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Salida Mensaje": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "0925e502b1dceca9c7f9c97421a196ca5e32d841d478c8181eca280371017f38"
+  }
+}
