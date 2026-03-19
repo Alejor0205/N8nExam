@@ -1,68 +1,118 @@
-﻿# Bot de Clima con n8n + Telegram + Gemini
+﻿# Asistente de Clima en n8n (Telegram + Gemini + Open-Meteo)
 
-Este proyecto contiene un flujo de **n8n** que recibe mensajes desde Telegram, consulta el clima actual en Open-Meteo, genera una respuesta natural usando IA (Gemini) y la devuelve al usuario por Telegram.
+Este repositorio contiene un workflow de **n8n** que recibe mensajes desde Telegram, prepara contexto del usuario, y usa un agente de IA con una herramienta HTTP para decidir cómo responder sobre consultas de clima.
 
-## Objetivo
-Automatizar respuestas de clima en un bot de Telegram con un mensaje corto, claro y amigable.
+## Qué aprenderás con este flujo
+- Cómo recibir eventos de Telegram en n8n.
+- Cómo normalizar datos de entrada con nodos `Set`.
+- Cómo conectar un **AI Agent** a un modelo (`Google Gemini`) y a una herramienta externa (`HTTP Request Tool`).
+- Cómo diseñar un prompt con reglas de negocio (pedir ciudad cuando falta, no inventar datos, etc.).
 
-## Flujo General
-1. **Webhook (`setWebhook`)** recibe un `POST` desde Telegram en la ruta `telegram-bot`.
-2. **HTTP Request** consulta el clima actual en Open-Meteo (lat/lon configuradas).
-3. **Edit Fields** extrae:
-   - `temperature` desde `current_weather.temperature`
-   - `windspeed` desde `current_weather.windspeed`
-4. **AI Agent1** usa un prompt para redactar un mensaje natural de clima.
-5. **Salida Mensaje** guarda el texto final en el campo `menssage`.
-6. **Send a text message** envía la respuesta al `chat.id` de Telegram.
+## Estado actual del flujo (importante)
+El flujo **sí procesa mensajes** y genera un texto de salida en el nodo `Salida Mensaje`, pero **no envía aún la respuesta de vuelta a Telegram** porque el workflow termina ahí.
 
-## Diagrama de Nodos
-`setWebhook -> HTTP Request -> Edit Fields -> AI Agent1 -> Salida Mensaje -> Send a text message`
+Esto significa:
+1. El usuario escribe al bot.
+2. n8n ejecuta el agente.
+3. La respuesta queda en ejecución interna (`mensaje`), pero no se publica en chat automáticamente.
 
-Nodo adicional:
-- `Google Gemini Chat Model` conectado a `AI Agent1` como modelo de lenguaje.
+## Arquitectura del workflow
 
-## Datos Clave del Flujo
-- **Webhook path:** `telegram-bot`
-- **Método webhook:** `POST`
-- **API clima:** `https://api.open-meteo.com/v1/forecast?latitude=7.1193&longitude=-73.1227&current_weather=true`
-- **Ubicación actual configurada:** lat `7.1193`, lon `-73.1227`
+### 1) Entrada: `Telegram Trigger`
+- Escucha actualizaciones tipo `message`.
+- Provee datos como:
+  - `message.text`
+  - `message.chat.first_name`
 
-## Credenciales Necesarias en n8n
-Configura estas credenciales en tu instancia de n8n antes de activar el flujo:
+### 2) Preparación de datos: `Edit Fields`
+Transforma la entrada en variables claras para el agente:
+- `chatInput = {{$json.message.text}}`
+- `nombre = {{$json.message.chat.first_name}}`
+
+### 3) Orquestación IA: `AI Agent1`
+Este nodo aplica reglas de conversación y decide la respuesta.
+
+Reglas principales definidas en el system message:
+- Saludar siempre usando el nombre del usuario.
+- Si no hay ciudad en el mensaje: pedirla amablemente.
+- Si hay ciudad: confirmar que consultará el clima.
+- No inventar ciudades.
+- Ser breve y natural.
+
+### 4) Modelo de lenguaje: `Google Gemini Chat Model`
+- Conectado al agente como `ai_languageModel`.
+- Responsable de generar el texto final según prompt y contexto.
+
+### 5) Herramienta externa del agente: `HTTP Request1`
+- Nodo tipo `httpRequestTool` conectado como `ai_tool`.
+- URL actual configurada:
+  - `https://api.open-meteo.com/v1/forecast?latitude=7.1193&longitude=-73.1227&current_weather=true`
+
+Nota pedagógica:
+- Aunque el prompt indica "si menciona ciudad", la herramienta hoy está fija a coordenadas predefinidas (no cambia dinámicamente por ciudad).
+- Para soportar múltiples ciudades necesitas geocodificación o mapeo ciudad -> lat/lon.
+
+### 6) Salida intermedia: `Salida Mensaje`
+Consolida datos para etapas posteriores:
+- `chatInput`
+- `nombre`
+- `mensaje = {{$json.output}}`
+
+Actualmente este nodo es el final del flujo.
+
+## Diagrama lógico
+`Telegram Trigger -> Edit Fields -> AI Agent1 -> Salida Mensaje`
+
+Conexiones de soporte:
+- `Google Gemini Chat Model -> AI Agent1` (`ai_languageModel`)
+- `HTTP Request1 -> AI Agent1` (`ai_tool`)
+
+## Credenciales requeridas
+Configura estas credenciales en n8n antes de activar:
 
 1. **Telegram API**
-   - Usada por el nodo: `Send a text message`
+   - Usada por: `Telegram Trigger`
 2. **Google Gemini (PaLM) API**
-   - Usada por el nodo: `Google Gemini Chat Model`
+   - Usada por: `Google Gemini Chat Model`
 
-## Importar el Flujo
+## Cómo importar y ejecutar
 1. Abre n8n.
 2. Ve a **Workflows** -> **Import from file**.
 3. Selecciona `n8n.json`.
-4. Reasigna credenciales de Telegram y Gemini.
+4. Reasigna credenciales.
 5. Activa el workflow.
+6. Escribe al bot en Telegram.
+7. Revisa la ejecución en n8n y valida el campo `mensaje` en `Salida Mensaje`.
 
-## Configuración de Telegram (resumen)
-1. Crea tu bot con `@BotFather` y obtén el token.
-2. Configura el webhook de Telegram para apuntar al webhook de n8n (`/webhook/telegram-bot` o `/webhook-test/telegram-bot` según modo).
-3. Envía un mensaje al bot para disparar el flujo.
+## Pruebas sugeridas (didácticas)
 
-## Prueba Rápida
-1. Envía un mensaje cualquiera al bot de Telegram.
-2. Verifica en n8n que el workflow se ejecute.
-3. Deberías recibir un mensaje corto describiendo el clima actual.
+### Caso A: sin ciudad
+Mensaje de usuario: `Hola, ¿cómo está el clima?`
+Esperado:
+- Saludo con nombre.
+- Solicitud de ciudad.
+- No debe inventar datos de clima.
 
-## Estructura de Respuesta
-El flujo construye una respuesta basada en:
-- Temperatura actual (`°C`)
-- Velocidad del viento (`km/h`)
+### Caso B: con ciudad
+Mensaje de usuario: `Hola, ¿qué clima hay en Bucaramanga?`
+Esperado:
+- Saludo con nombre.
+- Confirmación breve de consulta.
+- Respuesta natural.
 
-Luego IA la convierte en lenguaje natural para el usuario final.
+## Limitaciones actuales
+1. No hay envío automático de respuesta a Telegram al final.
+2. La URL de clima usa coordenadas fijas.
+3. El texto del prompt muestra caracteres mal codificados (`Ã`, `â†’`), probablemente por encoding.
 
-## Notas
-- El campo final se llama `menssage` (con doble “s”); está bien mientras se use de forma consistente en los nodos.
-- Si quieres cambiar ciudad/ubicación, modifica `latitude` y `longitude` en el nodo `HTTP Request`.
-- Si el texto del prompt se ve con caracteres extraños (acentos mal codificados), revisa la codificación UTF-8 del archivo/exportación.
+## Mejoras recomendadas (siguiente iteración)
+1. Agregar nodo **Telegram -> Send Message** al final usando:
+   - `chatId = {{$('Telegram Trigger').item.json.message.chat.id}}`
+   - `text = {{$json.mensaje}}`
+2. Implementar geocodificación de ciudad para obtener lat/lon dinámicos.
+3. Corregir codificación UTF-8 del prompt para evitar caracteres extraños.
+4. Añadir manejo de errores (API caída, ciudad inválida, respuesta vacía).
 
-## Archivo Principal
+## Archivos del proyecto
 - `n8n.json`: definición completa del workflow.
+- `README.md`: documentación funcional y técnica.
